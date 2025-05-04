@@ -11,7 +11,9 @@
 # Version: 1.0
 #
 ################################# Code begins here #######################################
+
 import tkinter as tk
+from tkinter import ttk
 from tkinter import filedialog
 from ttkbootstrap import Style
 from ttkbootstrap.widgets import Button, Combobox, Label
@@ -19,72 +21,134 @@ import os
 import subprocess
 import datetime
 import shlex
+import glob
 
 class ScreenRecorderUI(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.geometry("600x560")
+        self.geometry("380x500")
         self.style = Style("darkly")
         self.title("FFMPEG Screen Recorder")
-        self.update()
+        self.screens = self.get_screens()
         self.output_folder = os.path.expanduser("~")
         self.label_fg = "#ED1C24"
         self.recording_process = None
         self.recording = False
         self.recording_start_time = None
-        self.build_ui()      
-            
-    def build_ui(self):
+
+        self.notebook = ttk.Notebook(self)
+        self.notebook.pack(fill="both", expand=True)
+
+        self.record_frame = tk.Frame(self.notebook)
+        self.notebook.add(self.record_frame, text="Record")
+
+        self.stream_frame = tk.Frame(self.notebook)
+        self.notebook.add(self.stream_frame, text="Stream")
+
+        self.build_record_ui(self.record_frame)
+        self.build_stream_ui(self.stream_frame)
+        self.display = os.environ.get("DISPLAY", ":0")
+        if not self.display:
+            print("Warning: DISPLAY not found, defaulting to :0")
+            self.display = ":0"
+
+    def build_record_ui(self, parent):
         padding = {"padx": 10, "pady": 5}
+        row = 0
 
-        ###  PARAMS  ###
-        Label(self, text="Encoder:", foreground=self.label_fg).pack(anchor="w", **padding)
-        self.encoder_menu = Combobox(self, values=["hevc_vaapi", "h264_vaapi", "libx264", "mpeg1video"], state="readonly")
+        def add_row(label_text, widget):
+            nonlocal row
+            label = Label(parent, text=label_text, foreground=self.label_fg)
+            label.grid(row=row, column=0, sticky="e", **padding)
+            widget.grid(row=row, column=1, sticky="w", **padding)
+            row += 1
+        
+        COMMON_WIDTH = 25  # Set this once at the top of the method
+
+        self.encoder_menu = Combobox(parent, values=["hevc_vaapi", "h264_vaapi", "libx264", "mpeg1video"], state="readonly", width=COMMON_WIDTH)
         self.encoder_menu.set("hevc_vaapi")
-        self.encoder_menu.pack(fill="x", **padding)
-        Label(self, text="FPS:", foreground=self.label_fg).pack(anchor="w", **padding)
-        self.fps_menu = Combobox(self, values=["30", "60"], state="readonly")
-        self.fps_menu.set("60")
-        self.fps_menu.pack(fill="x", **padding)
-        Label(self, text="Resolution:", foreground=self.label_fg).pack(anchor="w", **padding)
-        self.resolution_menu = Combobox(self, values=["3840x2160", "2560x1440", "1920x1080", "1280x720"], state="readonly")
-        self.resolution_menu.set("1920x1080")
-        self.resolution_menu.pack(fill="x", **padding)
-        Label(self, text="Audio:", foreground=self.label_fg).pack(anchor="w", **padding)
-        self.audio_menu = Combobox(self, values=["None", "Desktop", "Microphone"], state="readonly")
-        self.audio_menu.set("Desktop")
-        self.audio_menu.pack(fill="x", **padding)
-        Label(self, text="Preset:", foreground=self.label_fg).pack(anchor="w", **padding)
-        self.preset_menu = Combobox(self, values=["ultrafast", "veryfast", "fast", "medium", "slow"], state="readonly")
-        self.preset_menu.set("ultrafast")
-        self.preset_menu.pack(fill="x", **padding)
-        
-        ### TIMER
-        self.timer_label = Label(self, text="00:00", font=("Arial", 18, "bold"), foreground=self.label_fg, anchor="center")
-        self.timer_label.pack(pady=10)
-        
-        ### FOLDER PICKER ###   
-        Label(self, text="Output Folder:", foreground=self.label_fg).pack(anchor="w", **padding)        
-        folder_frame = tk.Frame(self)
-        folder_frame.pack(fill="x", **padding)
-        self.folder_label = Label(folder_frame, text=self.output_folder, wraplength=400)
-        self.folder_label.pack(side="left", fill="x", expand=True)
-        Button(folder_frame, text="Browse", bootstyle="secondary", command=self.select_folder).pack(side="right")
+        add_row("Encoder:", self.encoder_menu)
 
-        ### BUTTONS ###
-        button_frame = tk.Frame(self)
-        button_frame.pack(pady=20)
+        self.filetype_menu = Combobox(parent, values=["mp4", "mkv", "webm"], state="readonly", width=COMMON_WIDTH)
+        self.filetype_menu.set("mp4")
+        add_row("File Type:", self.filetype_menu)
+
+        self.fps_menu = Combobox(parent, values=["30", "60"], state="readonly", width=COMMON_WIDTH)
+        self.fps_menu.set("60")
+        add_row("FPS:", self.fps_menu)
+
+        screen_names = [f"{name} ({res})" for name, res, _ in self.screens]
+        self.screen_menu = Combobox(parent, values=screen_names, state="readonly", width=COMMON_WIDTH)
+        if screen_names:
+            self.screen_menu.set(screen_names[0])
+        add_row("Screen:", self.screen_menu)
+
+        self.resolution_menu = Combobox(parent, values=["3840x2160", "2560x1440", "1920x1080", "1280x720"], state="readonly", width=COMMON_WIDTH)
+        self.resolution_menu.set("1920x1080")
+        add_row("Resolution:", self.resolution_menu)
+
+        self.audio_menu = Combobox(parent, values=["None", "Desktop", "Microphone"], state="readonly", width=COMMON_WIDTH)
+        self.audio_menu.set("Desktop")
+        add_row("Audio:", self.audio_menu)
+
+        self.preset_menu = Combobox(parent, values=["ultrafast", "veryfast", "fast", "medium", "slow"], state="readonly", width=COMMON_WIDTH)
+        self.preset_menu.set("ultrafast")
+        add_row("Preset:", self.preset_menu)
+        
+        Label(parent, text="Output Folder:", foreground=self.label_fg).grid(row=row, column=0, sticky="e", **padding)
+        browse_button = Button(parent, text="Browse", bootstyle="secondary", command=self.select_folder)
+        browse_button.grid(row=row, column=1, sticky="w", **padding)
+        row += 1
+        self.folder_label = Label(parent, text=self.output_folder, wraplength=400, anchor="center", justify="center")
+        self.folder_label.grid(row=row, column=0, columnspan=2, sticky="w", **padding)
+        row += 1
+
+        self.timer_label = Label(parent, text="00:00", font=("Arial", 18, "bold"), foreground=self.label_fg, anchor="center")
+        self.folder_label.grid(row=row, column=0, columnspan=2, sticky="ew", **padding)
+        row += 1
+
+        button_frame = tk.Frame(parent)
+        button_frame.grid(row=row, column=0, columnspan=2, pady=20)
         self.start_button = Button(button_frame, text="Start Recording", bootstyle="danger", command=self.start_recording)
         self.start_button.pack(side="left", padx=10)
         self.stop_button = Button(button_frame, text="Stop Recording", bootstyle="secondary", command=self.stop_recording)
         self.stop_button.pack(side="right", padx=10)
         self.stop_button["state"] = "disabled"
 
+
+    def build_stream_ui(self, parent):
+        padding = {"padx": 10, "pady": 5}
+        Label(parent, text="Streaming Placeholder UI", font=("Arial", 14, "bold"), foreground=self.label_fg).pack(pady=20)
+        Label(parent, text="This tab will contain stream settings.", foreground=self.label_fg).pack(**padding)
+        Button(parent, text="Coming Soon", bootstyle="info").pack(pady=10)
+
     def select_folder(self):
         folder = filedialog.askdirectory(initialdir=self.output_folder, title="Select Output Folder")
         if folder:
             self.output_folder = folder
             self.folder_label.config(text=folder)
+
+    def get_screens(self):
+        try:
+            output = subprocess.check_output(["xrandr", "--query"]).decode()
+            screens = []
+            for line in output.splitlines():
+                if " connected" in line:
+                    parts = line.split()
+                    name = parts[0]
+                    resolution = next((p for p in parts if "+" in p and "x" in p), None)
+                    if resolution:
+                        res_part = resolution.split("+")[0]
+                        offset_x = resolution.split("+")[1]
+                        offset_y = resolution.split("+")[2]
+                        if "primary" in line: 
+                            screens.append((name + " primary", res_part, f"+{offset_x},{offset_y}"))
+                        else:
+                            screens.append((name, res_part, f"+{offset_x},{offset_y}"))
+            return screens
+        except Exception as e:
+            print("Error fetching screens:", e)
+            return []
 
     def start_recording(self):
         if self.recording:
@@ -95,22 +159,24 @@ class ScreenRecorderUI(tk.Tk):
             return
 
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        output_file = f"{self.output_folder}/recording_{timestamp}.mp4"
+        file_extension = self.filetype_menu.get()
+        output_file = f"{self.output_folder}/recording_{timestamp}.{file_extension}"
         encoder = self.encoder_menu.get()
         fps = self.fps_menu.get()
         resolution = self.resolution_menu.get()
         preset = self.preset_menu.get()
         audio_choice = self.audio_menu.get()
 
-        offset = "+1920,0"
+        screen_index = self.screen_menu.current()
+        offset = self.screens[screen_index][2] if screen_index != -1 else "+0,0"
         command = [
             "ffmpeg",
             "-f", "x11grab",
             "-thread_queue_size", "512",
             "-framerate", fps,
             "-threads", "4",
-            "-video_size", resolution,
-            "-i", f":1.0{offset}",
+            "-video_size", self.screens[screen_index][1],
+            "-i", f"{self.display}{offset}",
         ]
 
         if audio_choice == "Desktop":
@@ -119,11 +185,12 @@ class ScreenRecorderUI(tk.Tk):
             command += ["-f", "pulse", "-thread_queue_size", "512", "-i", "alsa_input.pci-0000_0c_00.4.analog-stereo.3", "-c:a", "aac", "-b:a", "128k"]
 
         if encoder == "h264_vaapi":
-            command += ["-vaapi_device", "/dev/dri/renderD128", "-vf", "format=nv12,hwupload", "-c:v", encoder, "-qp", "24", "-preset", preset, "-bsf:v", "dump_extra"]
+            hwupload_chain = f"scale={resolution},format=nv12,hwupload"
+            command += ["-vaapi_device", "/dev/dri/renderD128", "-vf", hwupload_chain, "-c:v", encoder, "-qp", "24", "-preset", preset, "-bsf:v", "dump_extra"]
         elif encoder == "hevc_vaapi":
             command += ["-vaapi_device", "/dev/dri/renderD128", "-vf", "format=nv12,hwupload", "-c:v", encoder, "-qp", "24", "-preset", preset, "-bsf:v", "dump_extra"]
         else:
-            command += ["-c:v", encoder, "-crf", "23", "-preset", preset]
+            command += ["-vf", f"scale={resolution}", "-c:v", encoder, "-crf", "23", "-preset", preset]
 
         command += [output_file]
 
@@ -132,8 +199,6 @@ class ScreenRecorderUI(tk.Tk):
         self.recording = True
         self.recording_start_time = datetime.datetime.now()
         self.update_timer()
-
-        self.recording_start_time = datetime.datetime.now()
 
         self.start_button["state"] = "disabled"
         self.stop_button.config(state="normal", bootstyle="danger")
@@ -145,8 +210,6 @@ class ScreenRecorderUI(tk.Tk):
             minutes, seconds = divmod(elapsed.seconds, 60)
             self.timer_label.config(text=f"{minutes:02}:{seconds:02}")
             self.after(1000, self.update_timer)
-
-
 
     def stop_recording(self):
         if self.recording and self.recording_process:
