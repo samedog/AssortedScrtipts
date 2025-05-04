@@ -26,7 +26,7 @@ import glob
 class ScreenRecorderUI(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.geometry("380x500")
+        self.geometry("390x550")
         self.style = Style("darkly")
         self.title("FFMPEG Screen Recorder")
         self.screens = self.get_screens()
@@ -64,7 +64,6 @@ class ScreenRecorderUI(tk.Tk):
                     continue
                 name = parts[1]
 
-                # Determine type and label
                 if name.endswith(".monitor"):
                     if "hdmi" in name:
                         label = "Desktop (HDMI)"
@@ -105,7 +104,7 @@ class ScreenRecorderUI(tk.Tk):
             widget.grid(row=row, column=1, sticky="w", **padding)
             row += 1
         
-        COMMON_WIDTH = 25  # Set this once at the top of the method
+        COMMON_WIDTH = 25
 
         self.encoder_menu = Combobox(parent, values=["hevc_vaapi", "h264_vaapi", "libx264", "mpeg1video"], state="readonly", width=COMMON_WIDTH)
         self.encoder_menu.set("hevc_vaapi")
@@ -148,7 +147,8 @@ class ScreenRecorderUI(tk.Tk):
         row += 1
 
         self.timer_label = Label(parent, text="00:00", font=("Arial", 18, "bold"), foreground=self.label_fg, anchor="center")
-        self.folder_label.grid(row=row, column=0, columnspan=2, sticky="ew", **padding)
+        self.timer_label.grid(row=row, column=0, columnspan=2, sticky="ew", **padding)
+
         row += 1
 
         button_frame = tk.Frame(parent)
