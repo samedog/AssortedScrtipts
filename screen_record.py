@@ -51,6 +51,48 @@ class ScreenRecorderUI(tk.Tk):
         if not self.display:
             print("Warning: DISPLAY not found, defaulting to :0")
             self.display = ":0"
+            
+    def get_pulseaudio_sources(self):
+        try:
+            output = subprocess.check_output(["pactl", "list", "short", "sources"]).decode()
+            lines = output.strip().splitlines()
+            sources = {}
+
+            for line in lines:
+                parts = line.split()
+                if len(parts) < 2:
+                    continue
+                name = parts[1]
+
+                # Determine type and label
+                if name.endswith(".monitor"):
+                    if "hdmi" in name:
+                        label = "Desktop (HDMI)"
+                    elif "analog" in name:
+                        label = "Desktop (Analog)"
+                    else:
+                        label = f"Desktop ({name})"
+                else:
+                    if "analog" in name:
+                        label = "Microphone (Analog)"
+                    elif "hdmi" in name:
+                        label = "Microphone (HDMI)"
+                    else:
+                        label = f"Microphone ({name})"
+
+                # Prevent duplicate labels (e.g., two HDMI monitors)
+                base_label = label
+                i = 2
+                while label in sources:
+                    label = f"{base_label} #{i}"
+                    i += 1
+
+                sources[label] = name
+            return sources
+        except Exception as e:
+            print("Failed to get PulseAudio sources:", e)
+            return {}
+
 
     def build_record_ui(self, parent):
         padding = {"padx": 10, "pady": 5}
@@ -87,8 +129,10 @@ class ScreenRecorderUI(tk.Tk):
         self.resolution_menu.set("1920x1080")
         add_row("Resolution:", self.resolution_menu)
 
-        self.audio_menu = Combobox(parent, values=["None", "Desktop", "Microphone"], state="readonly", width=COMMON_WIDTH)
-        self.audio_menu.set("Desktop")
+        self.audio_sources = {"None": None}
+        self.audio_sources.update(self.get_pulseaudio_sources())
+        self.audio_menu = Combobox(parent, values=list(self.audio_sources.keys()), state="readonly", width=COMMON_WIDTH)
+        self.audio_menu.set("None" if "Desktop (Analog)" not in self.audio_sources else next(k for k in self.audio_sources if "Desktop (Analog)" in k))
         add_row("Audio:", self.audio_menu)
 
         self.preset_menu = Combobox(parent, values=["ultrafast", "veryfast", "fast", "medium", "slow"], state="readonly", width=COMMON_WIDTH)
@@ -179,10 +223,10 @@ class ScreenRecorderUI(tk.Tk):
             "-i", f"{self.display}{offset}",
         ]
 
-        if audio_choice == "Desktop":
-            command += ["-f", "pulse", "-thread_queue_size", "512", "-i", "alsa_output.pci-0000_0c_00.4.analog-stereo.monitor", "-c:a", "aac", "-b:a", "128k"]
-        elif audio_choice == "Microphone":
-            command += ["-f", "pulse", "-thread_queue_size", "512", "-i", "alsa_input.pci-0000_0c_00.4.analog-stereo.3", "-c:a", "aac", "-b:a", "128k"]
+        selected_audio = self.audio_sources.get(audio_choice)
+        if selected_audio:
+            command += ["-f", "pulse", "-thread_queue_size", "512", "-i", selected_audio, "-c:a", "aac", "-b:a", "128k"]
+
 
         if encoder == "h264_vaapi":
             hwupload_chain = f"scale={resolution},format=nv12,hwupload"
